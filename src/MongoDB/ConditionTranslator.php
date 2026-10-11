@@ -192,7 +192,7 @@ class ConditionTranslator
                 $parts[] = $part;
             }
         }
-        return self::combine($parts, $condition->getOperator());
+        return self::combine($parts, $condition->getOperator()) ?? [];
     }
 
     private static function translateExpressionForAlias($expression, string $alias, bool $keepAlias): ?array

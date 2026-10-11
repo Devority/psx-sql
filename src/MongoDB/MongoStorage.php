@@ -357,6 +357,77 @@ class MongoStorage implements StorageInterface
         return (int) ($doc['seq'] ?? 1);
     }
 
+    /**
+     * Creates the baseline indexes every Fusio-style installation needs:
+     * a dense unique index on the sequence-allocated "id" column and
+     * name-keyed uniqueness for lookup tables. Called by installers;
+     * safe to re-run (createIndexes is idempotent).
+     */
+    public static function ensureIndexes(Database $db): void
+    {
+        foreach ($db->listCollectionNames() as $name) {
+            if (!str_starts_with($name, 'fusio_')) {
+                continue;
+            }
+            $db->selectCollection($name)->createIndex(['id' => 1], ['name' => 'ux_id']);
+        }
+
+        foreach (self::NAME_UNIQUE_TABLES as $name) {
+            $db->selectCollection($name)->createIndex(
+                ['tenant_id' => 1, 'name' => 1],
+                ['name' => 'ux_tenant_name']
+            );
+        }
+
+        foreach (self::FIELD_INDEXES as $name => $fields) {
+            foreach ($fields as $spec) {
+                $db->selectCollection($name)->createIndex($spec, ['name' => 'ix_' . array_key_first($spec)]);
+            }
+        }
+    }
+
+    /**
+     * Records migration bookkeeping so schema-history consumers (upgrade
+     * commands, `system:check`) can see which Doctrine versions are
+     * logically applied even though DDL is skipped on schemaless stores.
+     *
+     * @param list<string> $versions
+     */
+    public static function recordMigrations(Database $db, array $versions): void
+    {
+        $col = $db->selectCollection('psx_migrations');
+        foreach ($versions as $version) {
+            $col->updateOne(
+                ['_id' => $version],
+                ['$setOnInsert' => ['applied_at' => new \MongoDB\BSON\UTCDateTime()]],
+                ['upsert' => true]
+            );
+        }
+    }
+
+    private const NAME_UNIQUE_TABLES = [
+        'fusio_action', 'fusio_agent', 'fusio_app', 'fusio_bundle',
+        'fusio_category', 'fusio_connection', 'fusio_event', 'fusio_identity',
+        'fusio_operation', 'fusio_page', 'fusio_plan', 'fusio_rate',
+        'fusio_role', 'fusio_schema', 'fusio_scope', 'fusio_user',
+        'fusio_webhook',
+    ];
+
+    private const FIELD_INDEXES = [
+        'fusio_token'        => [['token' => 1], ['expire' => 1]],
+        'fusio_log'          => [['date' => 1], ['ip' => 1], ['operation_id' => 1]],
+        'fusio_log_error'    => [['log_id' => 1]],
+        'fusio_user_scope'   => [['user_id' => 1], ['scope_id' => 1]],
+        'fusio_app_scope'    => [['app_id' => 1], ['scope_id' => 1]],
+        'fusio_role_scope'   => [['role_id' => 1], ['scope_id' => 1]],
+        'fusio_scope_operation' => [['scope_id' => 1], ['operation_id' => 1]],
+        'fusio_rate_allocation' => [['operation_id' => 1]],
+        'fusio_app_code'     => [['app_id' => 1], ['code' => 1]],
+        'fusio_user_grant'   => [['user_id' => 1], ['app_id' => 1]],
+        'fusio_audit'        => [['date' => 1], ['ref_id' => 1]],
+        'fusio_meta'         => [['name' => 1]],
+    ];
+
     private static function normalize(array $fields): array
     {
         foreach ($fields as $key => $value) {

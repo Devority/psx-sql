@@ -41,7 +41,12 @@ abstract class ViewAbstract implements ViewInterface
     {
         if ($tableManager instanceof Storage\StorageAwareTableManagerInterface) {
             $this->storage = $tableManager->getStorage();
-            $this->connection = null;
+            // non-SQL backends get a harmless in-memory sqlite connection for
+            // DBAL-only utilities (identifier quoting, nested result builders)
+            $this->connection = \Doctrine\DBAL\DriverManager::getConnection([
+                'driver' => 'pdo_sqlite',
+                'memory' => true,
+            ]);
         } else {
             $this->storage = null;
             $this->connection = $tableManager->getConnection();

@@ -41,4 +41,9 @@ abstract class ExpressionAbstract implements ExpressionInterface
 
         $this->column = $column;
     }
+
+    public function getColumn(): string
+    {
+        return $this->column;
+    }
 }

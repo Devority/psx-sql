@@ -242,6 +242,24 @@ class Condition extends ExpressionAbstract implements Countable
     }
 
     /**
+     * @return array<ExpressionInterface>
+     */
+    public function getConditions(): array
+    {
+        return $this->expressions;
+    }
+
+    public function getOperator(): LogicOperator
+    {
+        return $this->operator;
+    }
+
+    public function isInverse(): bool
+    {
+        return $this->inverse;
+    }
+
+    /**
      * Returns whether an condition exist
      */
     public function hasCondition(): bool

@@ -46,15 +46,29 @@ abstract class TableAbstract implements TableInterface
 {
     use ViewTrait;
 
-    protected Connection $connection;
+    protected ?Connection $connection = null;
     protected ?int $lastInsertId = null;
 
     private TableManagerInterface $tableManager;
+    private ?Storage\StorageInterface $storage = null;
 
     public function __construct(TableManagerInterface $tableManager)
     {
-        $this->connection   = $tableManager->getConnection();
+        if ($tableManager instanceof Storage\StorageAwareTableManagerInterface) {
+            $this->storage = $tableManager->getStorage();
+        }
+        if ($this->storage === null) {
+            $this->connection = $tableManager->getConnection();
+        }
         $this->tableManager = $tableManager;
+    }
+
+    /**
+     * Returns the custom storage backend or null if the default SQL path is used
+     */
+    protected function getStorage(): ?Storage\StorageInterface
+    {
+        return $this->storage;
     }
 
     public function getDisplayName(): string
@@ -87,6 +101,9 @@ abstract class TableAbstract implements TableInterface
      */
     public function getCount(?Condition $condition = null): int
     {
+        if ($this->storage !== null) {
+            return $this->storage->count($this, $condition);
+        }
         try {
             [$sql, $parameters] = $this->getQueryCount(
                 $this->getName(),
@@ -101,21 +118,28 @@ abstract class TableAbstract implements TableInterface
 
     public function beginTransaction(): void
     {
+        if ($this->storage !== null) { $this->storage->beginTransaction(); return; }
         $this->connection->beginTransaction();
     }
 
     public function commit(): void
     {
+        if ($this->storage !== null) { $this->storage->commit(); return; }
         $this->connection->commit();
     }
 
     public function rollBack(): void
     {
+        if ($this->storage !== null) { $this->storage->rollBack(); return; }
         $this->connection->rollBack();
     }
 
     public function getLastInsertId(): int
     {
+        if ($this->storage !== null) {
+            $id = $this->storage->lastInsertId();
+            if ($id !== null) { return $id; }
+        }
         if ($this->lastInsertId === null) {
             throw new NoLastInsertIdAvailable('No last insert id available');
         }
@@ -191,6 +215,19 @@ abstract class TableAbstract implements TableInterface
         $sortOrder = $sortOrder !== null ? $sortOrder : $this->sortOrder();
 
         $columns = array_keys($this->getColumns());
+
+        if ($this->storage !== null) {
+            $rows = $this->storage->findAll($this, $columns, $startIndex, $count, is_object($sortBy) ? $sortBy->value : $sortBy, $sortOrder, $condition);
+            $result = [];
+            $typeMap = $this->getColumns();
+            foreach ($rows as $row) {
+                foreach ($row as $key => $value) {
+                    if (isset($typeMap[$key])) { $row[$key] = $this->unserializeType($value, $typeMap[$key]); }
+                }
+                $result[] = $this->newRecord($row);
+            }
+            return $result;
+        }
 
         if ($sortBy instanceof ColumnInterface) {
             $sortBy = $sortBy->value;
@@ -354,6 +391,11 @@ abstract class TableAbstract implements TableInterface
     {
         try {
             $fields = $this->getFields($record);
+            if ($this->storage !== null) {
+                $result = $this->storage->insert($this, $fields);
+                $this->lastInsertId = $this->storage->lastInsertId();
+                return (int) $result;
+            }
             $result = $this->connection->insert($this->getName(), $fields);
 
             $this->lastInsertId = (int) $this->connection->lastInsertId();
@@ -373,6 +415,9 @@ abstract class TableAbstract implements TableInterface
             $fields = $this->getFields($record);
             $criteria = $this->getCriteria($fields);
 
+            if ($this->storage !== null) {
+                return $this->storage->update($this, $fields, $criteria);
+            }
             return (int) $this->connection->update($this->getName(), $fields, $criteria);
         } catch (DBALException $e) {
             throw new ManipulationException($e->getMessage(), 0, $e);
@@ -385,6 +430,9 @@ abstract class TableAbstract implements TableInterface
     protected function doUpdateBy(Condition $condition, RecordInterface $record): int
     {
         try {
+            if ($this->storage !== null) {
+                return $this->storage->updateBy($this, $condition, $record->getAll());
+            }
             $queryBuilder = $this->connection->createQueryBuilder();
             $queryBuilder->update($this->getName());
 
@@ -412,6 +460,9 @@ abstract class TableAbstract implements TableInterface
             $fields = $this->getFields($record);
             $criteria = $this->getCriteria($fields);
 
+            if ($this->storage !== null) {
+                return $this->storage->delete($this, $criteria);
+            }
             return (int) $this->connection->delete($this->getName(), $criteria);
         } catch (DBALException $e) {
             throw new ManipulationException($e->getMessage(), 0, $e);
@@ -424,6 +475,9 @@ abstract class TableAbstract implements TableInterface
     protected function doDeleteBy(Condition $condition): int
     {
         try {
+            if ($this->storage !== null) {
+                return $this->storage->deleteBy($this, $condition);
+            }
             $queryBuilder = $this->connection->createQueryBuilder();
             $queryBuilder->delete($this->getName());
 

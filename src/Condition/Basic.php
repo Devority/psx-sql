@@ -49,6 +49,11 @@ class Basic extends ExpressionAbstract
         return $this->column . ' ' . $this->operator->toSql() . ' ?';
     }
 
+    public function getOperator(): ComparisonOperator
+    {
+        return $this->operator;
+    }
+
     public function getValues(): array
     {
         return [$this->value];

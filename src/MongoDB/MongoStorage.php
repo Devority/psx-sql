@@ -365,10 +365,14 @@ class MongoStorage implements StorageInterface
      */
     public static function ensureIndexes(Database $db): void
     {
+        $tables = self::ALL_TABLES;
         foreach ($db->listCollectionNames() as $name) {
-            if (!str_starts_with($name, 'fusio_')) {
-                continue;
+            if (str_starts_with($name, 'fusio_') && !in_array($name, $tables, true)) {
+                $tables[] = $name;
             }
+        }
+        foreach ($tables as $name) {
+            // creates the collection implicitly when absent
             $db->selectCollection($name)->createIndex(['id' => 1], ['name' => 'ux_id']);
         }
 
@@ -404,6 +408,21 @@ class MongoStorage implements StorageInterface
             );
         }
     }
+
+    private const ALL_TABLES = [
+        'fusio_action', 'fusio_action_commit', 'fusio_agent', 'fusio_app',
+        'fusio_app_code', 'fusio_app_scope', 'fusio_audit', 'fusio_bundle',
+        'fusio_category', 'fusio_config', 'fusio_connection', 'fusio_cronjob',
+        'fusio_event', 'fusio_event_response', 'fusio_event_trigger',
+        'fusio_firewall', 'fusio_firewall_log', 'fusio_form', 'fusio_form_element',
+        'fusio_identity', 'fusio_log', 'fusio_log_error', 'fusio_meta',
+        'fusio_operation', 'fusio_page', 'fusio_plan', 'fusio_plan_scope',
+        'fusio_rate', 'fusio_rate_allocation', 'fusio_role', 'fusio_role_scope',
+        'fusio_schema', 'fusio_schema_commit', 'fusio_scope', 'fusio_scope_operation',
+        'fusio_taxonomy', 'fusio_test', 'fusio_token', 'fusio_transaction',
+        'fusio_trigger', 'fusio_user', 'fusio_user_grant', 'fusio_user_scope',
+        'fusio_webhook', 'fusio_webhook_response', 'psx_sequences', 'psx_migrations',
+    ];
 
     private const NAME_UNIQUE_TABLES = [
         'fusio_action', 'fusio_agent', 'fusio_app', 'fusio_bundle',

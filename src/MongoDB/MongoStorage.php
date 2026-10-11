@@ -367,12 +367,14 @@ class MongoStorage implements StorageInterface
         return $fields;
     }
 
-    private static function denormalize(array $row): array
+    private static function denormalize(array $row, bool $datesAsObjects = false): array
     {
         unset($row['_id']);
         foreach ($row as $key => $value) {
             if ($value instanceof UTCDateTime) {
-                $row[$key] = $value->toDateTime()->format('Y-m-d H:i:s');
+                $row[$key] = $datesAsObjects
+                    ? $value->toDateTime()
+                    : $value->toDateTime()->format('Y-m-d H:i:s');
             } elseif ($value instanceof \ArrayObject || $value instanceof \stdClass) {
                 $row[$key] = json_decode(json_encode($value), true);
             }

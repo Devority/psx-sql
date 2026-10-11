@@ -154,9 +154,81 @@ class ConditionTranslator
     private static function columnName(ExpressionInterface $expression): string
     {
         if ($expression instanceof Condition\ExpressionAbstract) {
-            return $expression->getColumn();
+            $column = $expression->getColumn();
+        } else {
+            $accessor = new \ReflectionProperty($expression, 'column');
+            $column = $accessor->getValue($expression);
         }
-        $accessor = new \ReflectionProperty($expression, 'column');
-        return $accessor->getValue($expression);
+        // SQL table aliases (log.tenant_id) do not exist in documents
+        $pos = strrpos($column, '.');
+        return $pos !== false ? substr($column, $pos + 1) : $column;
+    }
+    /**
+     * Translates only expressions whose column carries the given alias prefix.
+     * Used for $lookup pipelines where conditions span two collections —
+     * e.g. translate($condition, 'error') returns a filter on fusio_log_error
+     * fields only (alias stripped), while other-alias parts are dropped.
+     * Alias-free columns are always kept.
+     */
+    public static function translateForAlias(?Condition $condition, string $alias, bool $keepAlias = false): array
+    {
+        if ($condition === null || !$condition->hasCondition()) {
+            return [];
+        }
+        $parts = [];
+        foreach ($condition->getConditions() as $expression) {
+            $part = self::translateExpressionForAlias($expression, $alias, $keepAlias);
+            if ($part !== null) {
+                $parts[] = $part;
+            }
+        }
+        return self::combine($parts, $condition->getOperator());
+    }
+
+    private static function translateExpressionForAlias($expression, string $alias, bool $keepAlias): ?array
+    {
+        if ($expression instanceof Condition) {
+            $parts = [];
+            foreach ($expression->getConditions() as $sub) {
+                $part = self::translateExpressionForAlias($sub, $alias, $keepAlias);
+                if ($part !== null) {
+                    $parts[] = $part;
+                }
+            }
+            return self::combine($parts, $expression->getOperator());
+        }
+        // leaf — check alias
+        if ($expression instanceof Condition\ExpressionAbstract) {
+            $col = $expression->getColumn();
+            $pos = strrpos($col, '.');
+            $colAlias = $pos !== false ? substr($col, 0, $pos) : null;
+            if ($colAlias !== null && $colAlias !== $alias) {
+                return null; // other table
+            }
+            $filter = self::translateExpression($expression);
+            if ($keepAlias && $colAlias === $alias) {
+                // re-add the alias prefix for post-$lookup matches (log.field)
+                $prefix = $alias . '.';
+                $mapped = [];
+                foreach ($filter as $k => $v) {
+                    $mapped[str_starts_with($k, '$') || str_starts_with($k, 'or_') ? $k : $prefix . $k] = $v;
+                }
+                return $mapped;
+            }
+            return $filter;
+        }
+        return self::translateExpression($expression);
+    }
+
+    private static function combine(array $parts, $operator): ?array
+    {
+        $parts = array_values(array_filter($parts, fn ($p) => $p !== null && $p !== []));
+        if (empty($parts)) {
+            return null;
+        }
+        if (count($parts) === 1) {
+            return $parts[0];
+        }
+        return [$operator === LogicOperator::OR ? '$or' : '$and' => $parts];
     }
 }

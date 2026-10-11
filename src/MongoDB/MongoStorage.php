@@ -189,6 +189,148 @@ class MongoStorage implements StorageInterface
         return $this->database;
     }
 
+    /**
+     * Raw find against an arbitrary collection (for view/reporting code that
+     * does not go through a generated Table class).
+     */
+    public function rawFind(string $collection, array $filter = [], array $options = []): array
+    {
+        if ($this->session !== null) {
+            $options['session'] = $this->session;
+        }
+        $result = [];
+        foreach ($this->database->selectCollection($collection)->find($filter, $options) as $doc) {
+            $result[] = self::denormalize((array) $doc);
+        }
+        return $result;
+    }
+
+    /**
+     * Mongo aggregation pipeline for report/group queries.
+     */
+    /**
+     * Raw count on an arbitrary collection.
+     */
+    public function rawCount(string $collection, array $filter = []): int
+    {
+        $options = $this->session !== null ? ['session' => $this->session] : [];
+        return $this->database->selectCollection($collection)->countDocuments($filter, $options);
+    }
+
+    public function aggregate(string $collection, array $pipeline): array
+    {
+        $options = $this->session !== null ? ['session' => $this->session] : [];
+        $result = [];
+        foreach ($this->database->selectCollection($collection)->aggregate($pipeline, $options) as $doc) {
+            $result[] = self::denormalize((array) $doc);
+        }
+        return $result;
+    }
+
+    /**
+     * Group-by-day aggregation for time series (replaces GROUP BY DATE(col)).
+     *
+     * @return array<string, int|float> map day 'Y-m-d' => value
+     */
+    public function groupByDay(string $collection, array $filter, string $dateField = 'date', string $aggregate = 'count', string $valueField = 'id'): array
+    {
+        $groupExpr = match ($aggregate) {
+            'count' => ['$sum' => 1],
+            'sum'   => ['$sum' => '$' . $valueField],
+            'avg'   => ['$avg' => '$' . $valueField],
+            default => throw new \LogicException('Unsupported aggregate ' . $aggregate),
+        };
+        $pipeline = [
+            ['$match' => $filter],
+            ['$group' => [
+                '_id'   => ['$dateToString' => ['format' => '%Y-%m-%d', 'date' => ['$toDate' => '$' . $dateField]]],
+                'value' => $groupExpr,
+            ]],
+        ];
+        $out = [];
+        foreach ($this->aggregate($collection, $pipeline) as $row) {
+            $out[$row['_id']] = $row['value'];
+        }
+        return $out;
+    }
+
+    /**
+     * Group-by-(day, key) aggregation — replaces GROUP BY DATE(d), fk.
+     *
+     * @return array<string|int, array<string, int|float>> map key => day => value
+     */
+    public function groupByDayAndKey(string $collection, array $filter, string $keyField, string $dateField = 'date', string $aggregate = 'count', string $valueField = 'id'): array
+    {
+        $groupExpr = match ($aggregate) {
+            'count' => ['$sum' => 1],
+            'sum'   => ['$sum' => '$' . $valueField],
+            'avg'   => ['$avg' => '$' . $valueField],
+            default => throw new \LogicException('Unsupported aggregate ' . $aggregate),
+        };
+        $pipeline = [
+            ['$match' => $filter],
+            ['$group' => [
+                '_id'   => ['key' => '$' . $keyField, 'day' => ['$dateToString' => ['format' => '%Y-%m-%d', 'date' => ['$toDate' => '$' . $dateField]]]],
+                'value' => $groupExpr,
+            ]],
+        ];
+        $out = [];
+        foreach ($this->aggregate($collection, $pipeline) as $row) {
+            $out[$row['_id']['key']][$row['_id']['day']] = $row['value'];
+        }
+        return $out;
+    }
+
+    /**
+     * Flat variant of groupByDayAndKey returning SQL-shaped rows
+     * [key, date, value] so existing loop code works unchanged.
+     */
+    public function groupByDayAndKeyFlat(string $collection, array $filter, string $keyField, string $dateField = 'date', string $aggregate = 'count', string $valueField = 'id'): array
+    {
+        $nested = $this->groupByDayAndKey($collection, $filter, $keyField, $dateField, $aggregate, $valueField);
+        $rows = [];
+        foreach ($nested as $key => $perDay) {
+            foreach ($perDay as $day => $value) {
+                $rows[] = [$key, $day, $value];
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * Top-N group count with an optional lookup for the human-readable name
+     * (replaces GROUP BY fk + INNER JOIN for label resolution).
+     *
+     * @return array<int, array{id: mixed, name: string|null, cnt: int}>
+     */
+    public function topGroups(string $collection, array $filter, string $groupField, ?string $joinCollection = null, string $nameField = 'name', int $limit = 6): array
+    {
+        $pipeline = [
+            ['$match' => $filter],
+            ['$group' => ['_id' => '$' . $groupField, 'cnt' => ['$sum' => 1]]],
+            ['$sort' => ['cnt' => -1]],
+            ['$limit' => $limit],
+        ];
+        if ($joinCollection !== null) {
+            $pipeline[] = ['$lookup' => [
+                'from' => $joinCollection,
+                'localField' => '_id',
+                'foreignField' => 'id',
+                'as' => 'joined',
+            ]];
+            $pipeline[] = ['$unwind' => ['path' => '$joined', 'preserveNullAndEmptyArrays' => true]];
+        }
+        $out = [];
+        foreach ($this->aggregate($collection, $pipeline) as $row) {
+            $out[] = [
+                'id'   => $row['_id'],
+                'name' => $row['joined'][$nameField] ?? null,
+                'cnt'  => (int) ($row['cnt'] ?? 0),
+            ];
+        }
+        return $out;
+    }
+
     private function collection(TableInterface $table): Collection
     {
         return $this->database->selectCollection($table->getName());

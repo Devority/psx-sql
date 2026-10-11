@@ -41,5 +41,10 @@
     },
     "replace": {
         "devority/psx-sql": "self.version"
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-feat/mongodb-backend": "4.9.x-dev"
+        }
     }
 }

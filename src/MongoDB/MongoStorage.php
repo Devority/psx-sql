@@ -369,7 +369,10 @@ class MongoStorage implements StorageInterface
 
     private static function denormalize(array $row, bool $datesAsObjects = false): array
     {
-        unset($row['_id']);
+        // keep scalar _id (aggregation group keys); drop BSON ObjectId _id of stored docs
+        if (($row['_id'] ?? null) instanceof \MongoDB\BSON\ObjectId) {
+            unset($row['_id']);
+        }
         foreach ($row as $key => $value) {
             if ($value instanceof UTCDateTime) {
                 $row[$key] = $datesAsObjects

@@ -178,6 +178,11 @@ abstract class TableAbstract implements TableInterface
             return json_decode($value);
         }
 
+        if ($this->storage !== null) {
+            // document backends return native php types already
+            return $value;
+        }
+
         return $this->connection->convertToPHPValue(
             $value,
             TypeMapper::getDoctrineTypeByType($type)
@@ -195,6 +200,15 @@ abstract class TableAbstract implements TableInterface
             $value = $value->toDateTime();
         } elseif ($value instanceof LocalTime) {
             $value = $value->toDateTime();
+        }
+
+        if ($this->storage !== null) {
+            // Mongo stores native types: arrays become embedded documents, DateTime
+            // becomes UTCDateTime (see MongoStorage::normalize), scalars pass through
+            if ($type === self::TYPE_JSON && $value !== null && is_string($value)) {
+                return $value;
+            }
+            return $value;
         }
 
         return $this->connection->convertToDatabaseValue(

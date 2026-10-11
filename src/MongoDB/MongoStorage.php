@@ -46,6 +46,7 @@ class MongoStorage implements StorageInterface
     private Database $database;
     private ?Session $session = null;
     private ?int $lastInsertId = null;
+    private ?string $dsn = null;
 
     public function __construct(Client $client, string $database)
     {
@@ -58,7 +59,17 @@ class MongoStorage implements StorageInterface
         $parts = parse_url($dsn);
         $db = isset($parts['path']) ? ltrim($parts['path'], '/') : 'fusio';
         $client = new Client($dsn);
-        return new self($client, $db !== '' ? $db : 'fusio');
+        $storage = new self($client, $db !== '' ? $db : 'fusio');
+        $storage->dsn = $dsn;
+        return $storage;
+    }
+
+    /**
+     * Returns the DSN this storage was created from or null when constructed manually
+     */
+    public function getDsn(): ?string
+    {
+        return $this->dsn;
     }
 
     public function findAll(TableInterface $table, array $fields, int $startIndex, int $count, ?string $sortBy, OrderBy $sortOrder, ?Condition $condition = null): array

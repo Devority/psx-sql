@@ -33,13 +33,29 @@ abstract class ViewAbstract implements ViewInterface
 {
     use ViewTrait;
 
-    protected Connection $connection;
-
+    protected ?Connection $connection;
+    protected ?Storage\StorageInterface $storage;
     private TableManagerInterface $tableManager;
 
-    public function __construct(TableManager $tableManager)
+    public function __construct(TableManagerInterface $tableManager)
     {
-        $this->connection   = $tableManager->getConnection();
+        if ($tableManager instanceof Storage\StorageAwareTableManagerInterface) {
+            $this->storage = $tableManager->getStorage();
+            $this->connection = null;
+        } else {
+            $this->storage = null;
+            $this->connection = $tableManager->getConnection();
+        }
         $this->tableManager = $tableManager;
+    }
+
+    /**
+     * Returns the active storage backend, or null when the SQL path is used.
+     * Views with raw SQL should branch on this (or throw NotSupported) — see
+     * StorageInterface::findAll for a portable query path.
+     */
+    protected function getStorage(): ?Storage\StorageInterface
+    {
+        return $this->storage;
     }
 }

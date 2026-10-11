@@ -95,7 +95,7 @@ class MongoStorage implements StorageInterface
 
         $result = [];
         foreach ($cursor as $doc) {
-            $result[] = self::denormalize((array) $doc);
+            $result[] = self::denormalize((array) $doc, true);
         }
         return $result;
     }

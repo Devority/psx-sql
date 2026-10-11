@@ -89,15 +89,15 @@ class ConditionTranslator
         }
 
         if ($expression instanceof In) {
-            return [$column => ['$in' => $expression->getValues()]];
+            return [$column => ['$in' => array_map(self::normalizeValue(...), $expression->getValues())]];
         }
 
         if ($expression instanceof NotIn) {
-            return [$column => ['$nin' => $expression->getValues()]];
+            return [$column => ['$nin' => array_map(self::normalizeValue(...), $expression->getValues())]];
         }
 
         if ($expression instanceof Between) {
-            [$left, $right] = $expression->getValues();
+            [$left, $right] = array_map(self::normalizeValue(...), $expression->getValues());
             return [$column => ['$gte' => $left, '$lte' => $right]];
         }
 
@@ -126,8 +126,18 @@ class ConditionTranslator
     /**
      * @return array<string, mixed>|scalar|null
      */
+    private static function normalizeValue(mixed $value): mixed
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return new \MongoDB\BSON\UTCDateTime($value);
+        }
+        return $value;
+    }
+
     private static function operatorFilter(ComparisonOperator $operator, mixed $value): mixed
     {
+        $value = self::normalizeValue($value);
+
         return match ($operator) {
             ComparisonOperator::EQUALS => $value,
             ComparisonOperator::NOT_EQUALS => ['$ne' => $value],

@@ -484,6 +484,26 @@ abstract class TableAbstract implements TableInterface
     }
 
     /**
+     * Public variant of deleteBy for service/table-helper use.
+     *
+     * @throws ManipulationException
+     */
+    public function deleteByCondition(Condition $condition): int
+    {
+        return $this->doDeleteBy($condition);
+    }
+
+    /**
+     * Public variant of updateBy for service/table-helper use.
+     *
+     * @throws ManipulationException
+     */
+    public function updateByCondition(Condition $condition, RecordInterface $record): int
+    {
+        return $this->doUpdateBy($condition, $record);
+    }
+
+    /**
      * @throws ManipulationException
      */
     protected function doDeleteBy(Condition $condition): int
